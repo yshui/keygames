@@ -1,0 +1,10 @@
+[package]
+name = "ns"
+version = "0.1.0"
+authors = ["Yuxuan Shui <yshuiv7@gmail.com>"]
+
+[dependencies]
+rust-crypto = "^0.2"
+num = "*"
+rustc-serialize = "0.3"
+rand = "0.3"
