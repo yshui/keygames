@@ -3,7 +3,7 @@ extern crate num;
 extern crate rand;
 extern crate rustc_serialize;
 use std::net::UdpSocket;
-use num::bigint::BigInt;
+use num::bigint::{BigInt, BigUint};
 use num::bigint::Sign;
 use std::io;
 use std::io::prelude::*;
@@ -20,23 +20,35 @@ fn main() {
 		let mut f = File::open("secret").unwrap();
 		f.read(&mut k).unwrap();
 		let p = BigUint::from_bytes_le(&k);
-		public = elgamal::PublicKey::new(BigInt::from_bytes_le(Sign::Plus, k));
+		f.read(&mut k).unwrap();
+		let g = BigUint::from_bytes_le(&k);
+		f.read(&mut k).unwrap();
+		let x = BigUint::from_bytes_le(&k);
+		f.read(&mut k).unwrap();
+		let y = BigUint::from_bytes_le(&k);
 
-		f.read(&mut k);
-		secret = elgamal::PrivateKey::new(BigInt::from_bytes_le(Sign::Plus, k));
+		public = elgamal::PublicKey {g: g, p:p, y:y, bit_size:128};
+
+		secret = elgamal::PrivateKey {g:g, p:p, x:x};
 	}
 	let mut pubkey_db = HashMap::new(); //
 	{
 		let mut ip = [0; 10]; //IP address and port
-		let mut key = [0; 32]; //pubkey
+		let mut k = [0; 32]; //pubkey
 		let mut f = File::open("pubkey_db").unwrap();
 		loop {
 			let res = f.read(&mut ip);
 			if let Err(x) = res {
 				break;
 			}
-			f.read(&mut key);
-			pubkey_db.insert(&ip, &key);
+			f.read(&mut k);
+			let p = BigUint::from_bytes_le(&k);
+			f.read(&mut k);
+			let g = BigUint::from_bytes_le(&k);
+			f.read(&mut k);
+			let y = BigUint::from_bytes_le(&k);
+			let s = elgamal::PublicKey {g:g, p:p, y:y, bit_size:128};
+			pubkey_db.insert(ip, s);
 		}
 	}
 	loop {
@@ -46,7 +58,7 @@ fn main() {
 				//Debug
 				println!("{:?}", &buf[0..sz]);
 				// Decrypt with my secret key
-				let msg = secret.decrypt_string(buf.as_slice());
+				let msg = secret.decrypt(buf);
 
 				// Lookup the public key
 				if let Some(k) = pubkey_db.get(src) {

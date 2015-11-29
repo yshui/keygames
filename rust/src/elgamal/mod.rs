@@ -47,6 +47,7 @@ use num::bigint::{BigInt,BigUint,RandBigInt,ToBigInt,Sign};
 use num::{Zero, One};
 use rustc_serialize::hex::{ToHex, FromHex};
 use std::string::FromUtf8Error;
+use std::iter::repeat;
 //use std::num::{Zero, One, FromStrRadix, ToStrRadix};
 
 //#[deriving(Show)]
@@ -54,7 +55,7 @@ pub struct PublicKey {
     g: BigUint, 
     p: BigUint,
     y: BigUint,
-    bit_size: usize
+    bit_size: usize // Assumed to be 128
 }
 
 //#[deriving(Show)]
@@ -246,15 +247,26 @@ impl PrivateKey {
     }
 
     // Decryption
-    pub fn decrypt(&self, c1: &BigUint, c2: &BigUint) -> BigUint {
+    pub fn raw_decrypt(&self, c1: &BigUint, c2: &BigUint) -> BigUint {
         (c2 * inv_mod(&pow_mod(c1, &self.x, &self.p), &self.p).unwrap()) % self.p
     }
 
-    // Decryption (String encoding)
-    pub fn decrypt_to_string(&self, c1: &BigUint, c2: &BigUint) -> Result<String, FromUtf8Error> {
-        let d = self.decrypt(c1, c2);
-        String::from_utf8(d.to_bytes_le())
+    pub fn decrypt(&self, m: &[u8]) -> Vec<u8> {
+        let c1 = BigUint::from_bytes_le(m[0..32]);
+        let s = inv_mod(&pow_mod(c1, &self.x, &self.p), &self.p);
+        let res : Vec<u8> = Vec::new();
+        assert!(m.len() % 32 == 0);
+        for i in 1..m.len()/32 {
+            let c2 = BigUint::from_bytes_le(m[i*32..i*32+31]);
+            let x = (c2*s)%self.p;
+            res.extend(x.to_bytes_le());
+        }
+        //Remove padding
+        let pad_len = res[res.len()-1];
+        res.truncate(pad_len);
+        res
     }
+
 }
 
 impl PublicKey {
@@ -278,7 +290,8 @@ impl PublicKey {
 */
 
     // Encryption
-    pub fn encrypt(&self, m: &BigUint) -> (BigUint, BigUint) {
+    pub fn raw_encrypt(&self, m: &BigUint) -> (BigUint, BigUint) {
+        assert!(m < &self.p);
         let one: BigUint = One::one();
         let mut rng = rand::thread_rng();
         let k: BigUint = rng.gen_biguint_range(&one, &(self.p - one));
@@ -287,12 +300,38 @@ impl PublicKey {
         (c1, c2)
     }
 
+    pub fn encrypt (&self, m: &[u8]) -> Vec<u8> {
+        let mut res : Vec<u8> = Vec::new();
+        let one: BigUint = One::one();
+        let mut rng = rand::thread_rng();
+        let k: BigUint = rng.gen_biguint_range(&one, &(self.p - one));
+        let c1 = pow_mod(&self.g, &k, &self.p);
+        res.extend(c1.to_bytes_le());
+        for i in 0..m.len()/32 {
+            let mp = BigUint::from_bytes_le(&m[i*32..i*32+31]);
+            let c2 = (pow_mod(&self.y, &k, &self.p)*mp)%self.p;
+            res.extend(c2.to_bytes_le());
+        }
+        let pad : BigUint;
+        //PKCS7 padding
+        if m.len() % 32 == 0 {
+            let u : Vec<u8> = repeat(32).take(32).collect();
+            pad = BigUint::from_bytes_le(&u);
+        } else {
+            let begin = m.len()-m.len()%32;
+            let x : Vec<u8> = m[begin..].iter().cloned().collect();
+            x.extend(repeat(32-(m.len()%32) as u8).take(32-m.len()%32));
+            pad = BigUint::from_bytes_le(&x);
+        }
+        let c2 = (pow_mod(&self.y, &k, &self.p)*pad)%self.p;
+        res.extend(c2.to_bytes_le());
+        res
+    }
+
     // Encryption (String encoding)
     pub fn encrypt_string(&self, m: &str) -> (BigUint, BigUint) {
-        let maximum_len = self.bit_size / 8;
-        let bytes = m.as_bytes();
-        assert!( bytes.len() <= maximum_len, "Message cannot be larger than key size ({} bytes)", maximum_len);
-        self.encrypt( &(BigUint::from_bytes_le(&bytes)) )
+        let x : Vec<u8> = m.bytes().collect();
+        self.encrypt(&x);
     }
 }
 
@@ -338,3 +377,4 @@ mod test_elgamal {
         assert!(verified);
     }
 }
+// vim: set et sw=4 :
