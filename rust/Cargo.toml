@@ -8,6 +8,7 @@ rust-crypto = "^0.2"
 num = "*"
 rustc-serialize = "0.3"
 rand = "0.3"
+time = "0.1"
 
 [[bin]]
 name = "client"

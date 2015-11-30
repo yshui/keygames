@@ -255,16 +255,28 @@ impl PrivateKey {
     // Signature generation
     pub fn sign(&self, m: &BigUint) -> (BigUint, BigUint) {
         let one: BigUint = One::one();
+        let zero : BigUint = Zero::zero();
         let two = &one+&one;
         let mut rng = rand::thread_rng();
         let bound = &self.p - &one;
-        let mut k: BigUint = rng.gen_biguint_range(&two, &bound);
-        while k.gcd(&bound) != one {
-            k = rng.gen_biguint_range(&two, &bound);
-        };
-        let r = pow_mod(&self.g, &k, &self.p);
-        let s = ( ( m - ( &self.x * &r ) ) * inv_mod( &k, &bound ).unwrap() ) % &bound;
-        (r, s)
+        let bx = bound.to_bigint().unwrap();
+        loop {
+            let mut k: BigUint = rng.gen_biguint_range(&two, &bound);
+            while k.gcd(&bound) != one {
+                k = rng.gen_biguint_range(&two, &bound);
+            };
+            let r = pow_mod(&self.g, &k, &self.p);
+            let mx = m.to_bigint().unwrap();
+            let xr = (&self.x*&r).to_bigint().unwrap();
+            let mut xx = (mx-xr) % &bx;
+            if xx.is_negative() {
+                xx = &xx+&bx;
+            }
+            let s = xx.to_biguint().unwrap() * inv_mod( &k, &bound ).unwrap() % &bound;
+            if s != zero {
+                return (r, s);
+            }
+        }
     }
 
     // Signature generation (String encoding)
@@ -291,11 +303,13 @@ impl PrivateKey {
             let x = (c2*&s)%&self.p;
             let v = x.to_bytes_le();
             let pad = bsz-v.len();
+            println!("{}", pad);
             res.extend(v);
             res.extend(repeat(0).take(pad));
         }
         //Remove padding
-        let pad_len = res[res.len()-1];
+        println!("{:?}", res);
+        let pad_len = res.len()-res[res.len()-1] as usize;
         res.truncate(pad_len as usize);
         res
     }
@@ -352,13 +366,13 @@ impl PublicKey {
         }
         let pad : BigUint;
         //PKCS7 padding
-        if m.len() % 32 == 0 {
-            let u : Vec<u8> = repeat(32).take(32).collect();
+        if m.len() % bsz == 0 {
+            let u : Vec<u8> = repeat(bsz as u8).take(bsz).collect();
             pad = BigUint::from_bytes_le(&u);
         } else {
-            let begin = m.len()-m.len()%32;
+            let begin = m.len()-m.len()%bsz;
             let mut x : Vec<u8> = m[begin..].iter().cloned().collect();
-            x.extend(repeat(32-(m.len()%32) as u8).take(32-m.len()%32));
+            x.extend(repeat((bsz-(m.len()%bsz)) as u8).take(bsz-m.len()%bsz));
             pad = BigUint::from_bytes_le(&x);
         }
         let c2 = (pow_mod(&self.y, &k, &self.p)*pad)%&self.p;

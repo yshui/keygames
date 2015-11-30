@@ -4,9 +4,16 @@ import botan.pubkey.algo.elgamal;
 import botan.pubkey.algo.dl_group;
 import botan.rng.rng;
 import botan.rng.auto_rng;
+import botan.math.bigint.bigint;
+import botan.math.numbertheory.numthry;
+import std.range, std.algorithm, std.string;
+import std.socket, std.typecons;
+import sign;
+
 
 void main()
 {
+	/* Generate Keys
 	auto rng = new AutoSeededRNG;
 	auto priv = ElGamalPrivateKey(rng, DLGroup("dsa/jce/1024"));
 	auto X = priv.getX.toString;
@@ -29,4 +36,37 @@ void main()
 
 	outf = File("client.priv", "w");
 	outf.writefln("%s\n%s\n%s\n", G2, P2, X2);
+	*/
+	//Read server private key
+	auto inf = File("server.priv");
+	auto rng = new AutoSeededRNG;
+	auto X = BigInt(inf.byLine.drop(2).front.stripRight.idup);
+	auto x = X.toString;
+	auto priv = ElGamalPrivateKey(rng, DLGroup("dsa/jce/1024"), X.move);
+
+	inf = File("client.pub");
+	auto Y = BigInt(inf.byLine.drop(2).front.stripRight.idup);
+	auto pub = ElGamalPublicKey(DLGroup("dsa/jce/1024"), Y.move);
+
+	auto sock = new UdpSocket();
+	char[] addr = "127.0.0.1".dup;
+	auto saddr = scoped!InternetAddress(addr, cast(ushort)12345);
+	Address src;
+	sock.bind(saddr);
+
+	auto de = new ElGamalDecryptionOperation(priv, rng);
+
+	ubyte[4096] buf;
+	while(true) {
+		auto sz = sock.receiveFrom(buf, src);
+		if (sz == Socket.ERROR)
+			break;
+		auto key_iv = de.decrypt(&buf[0], 256);
+		auto sigr = de.decrypt(&buf[256], 256);
+		auto sigs = de.decrypt(&buf[512], 256);
+
+		if (pub.verify(sigr~sigs, key_iv)) {
+			
+		}
+	}
 }

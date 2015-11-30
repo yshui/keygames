@@ -5,9 +5,11 @@ extern crate rustc_serialize;
 extern crate crypto;
 use std::net::UdpSocket;
 use num::bigint::BigUint;
+use num::traits::Num;
 use std::io;
 use std::io::prelude::*;
 use std::fs::File;
+use std::io::BufReader;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::collections::HashMap;
 use crypto::{blockmodes, aes, buffer};
@@ -18,82 +20,78 @@ fn main() {
 	let mut buf = [0; 65536]; //Buf for message
 	let my_msg = b"We have been connected";
 	//Load my secret key
-	let (public, secret);
-	{
+	let privkey = {
 		let mut k = [0; 128]; //1024bits key
-		let mut f = File::open("server").unwrap();
-		f.read(&mut k).unwrap();
-		let p = BigUint::from_bytes_le(&k);
-		f.read(&mut k).unwrap();
-		let g = BigUint::from_bytes_le(&k);
-		f.read(&mut k).unwrap();
-		let x = BigUint::from_bytes_le(&k);
-		f.read(&mut k).unwrap();
-		let y = BigUint::from_bytes_le(&k);
+		let mut f = File::open("server.priv").unwrap();
+		let mut reader = BufReader::new(f);
+		let mut line = String::new();
 
-		public = elgamal::PublicKey {g: g.clone(), p:p.clone(), y:y, bit_size:1024};
+		reader.read_line(&mut line).unwrap();
+		let g = BigUint::from_str_radix(&line.trim(), 10).unwrap();
 
-		secret = elgamal::PrivateKey {g:g, p:p, x:x, bit_size:1024};
-	}
-	let mut pubkey_db = HashMap::new(); //
-	{
-		let mut ipb = [0; 6]; //IP address and port
-		let mut k = [0; 128]; //pubkey
-		let mut f = File::open("pubkey_db").unwrap();
-		loop {
-			let res = f.read(&mut ipb);
-			if let Err(_) = res {
-				break;
-			}
-			let ip = Ipv4Addr::new(ipb[0], ipb[1], ipb[2], ipb[3]);
-			let port = (ipb[4] as u16)+(ipb[5] as u16)*256;
-			let saddr = SocketAddrV4::new(ip, port);
-			f.read(&mut k).unwrap();
-			let p = BigUint::from_bytes_le(&k);
-			f.read(&mut k).unwrap();
-			let g = BigUint::from_bytes_le(&k);
-			f.read(&mut k).unwrap();
-			let y = BigUint::from_bytes_le(&k);
-			let s = elgamal::PublicKey {g:g, p:p, y:y, bit_size:1024};
-			pubkey_db.insert(saddr, s);
-		}
-	}
+		line = String::new();
+		reader.read_line(&mut line).unwrap();
+		let p = BigUint::from_str_radix(&line.trim(), 10).unwrap();
+
+		line = String::new();
+		reader.read_line(&mut line).unwrap();
+		let x = BigUint::from_str_radix(&line.trim(), 10).unwrap();
+
+		elgamal::PrivateKey {g:g, p:p, x:x, bit_size:1024}
+	};
+	let pubkey = {
+		let mut f = File::open("client.pub").unwrap();
+		let mut reader = BufReader::new(f);
+		let mut line = String::new();
+
+		reader.read_line(&mut line).unwrap();
+		let g = BigUint::from_str_radix(&line.trim(), 10).unwrap();
+
+		line = String::new();
+		reader.read_line(&mut line).unwrap();
+		let p = BigUint::from_str_radix(&line.trim(), 10).unwrap();
+
+		line = String::new();
+		reader.read_line(&mut line).unwrap();
+		let x = BigUint::from_str_radix(&line.trim(), 10).unwrap();
+
+		elgamal::PublicKey {g:g, p:p, y:x, bit_size:1024}
+	};
 	loop {
 		let res = sock.recv_from(&mut buf);
 		match res {
 			Ok((sz, src)) => {
 				if let SocketAddr::V4(x) = src {
 					//Debug
-					println!("{:?}", &buf[0..sz]);
 					// Decrypt with my secret key
-					assert!(sz == 384);
-					let msg = secret.decrypt(&buf);
+					let msg = privkey.decrypt(&buf[0..sz]);
+					println!("{}: {:?}", msg.len(), &msg);
+					assert!(msg.len() == 384);
 					let key = BigUint::from_bytes_le(&msg[0..128]);
 					let (sigr, sigs) = (BigUint::from_bytes_le(&msg[128..256]),
 							    BigUint::from_bytes_le(&msg[256..384]));
 
-					// Lookup the public key
-					if let Some(k) = pubkey_db.get(&x) {
-						//Verify signature
-						if k.verify(&sigr, &sigs, &key) {
-							//Message is a 256 bit key
-							let mut en = aes::cbc_encryptor(aes::KeySize::KeySize256, &msg[0..32], &msg[32..64], blockmodes::PkcsPadding);
-							let mut res : Vec<u8> = Vec::new();
-							let mut read_buf = buffer::RefReadBuffer::new(&my_msg[..]);
-							let mut buf = [0; 4096];
-							let mut write_buf = buffer::RefWriteBuffer::new(&mut buf);
-							loop {
-								let result = en.encrypt(&mut read_buf, &mut write_buf, true).unwrap();
+					//Verify signature
+					if pubkey.verify(&sigr, &sigs, &key) {
+						//Message is a 256 bit key
+						let mut en = aes::cbc_encryptor(aes::KeySize::KeySize256, &msg[0..32], &msg[32..48], blockmodes::PkcsPadding);
+						let mut res : Vec<u8> = Vec::new();
+						let mut read_buf = buffer::RefReadBuffer::new(&my_msg[..]);
+						let mut buf = [0; 4096];
+						let mut write_buf = buffer::RefWriteBuffer::new(&mut buf);
+						loop {
+							let result = en.encrypt(&mut read_buf, &mut write_buf, true).unwrap();
 
-								res.extend(write_buf.take_read_buffer().take_remaining().iter().cloned());
+							res.extend(write_buf.take_read_buffer().take_remaining().iter().cloned());
 
-								match result {
-									BufferResult::BufferUnderflow => break,
-									BufferResult::BufferOverflow => { }
-								}
+							match result {
+								BufferResult::BufferUnderflow => break,
+								BufferResult::BufferOverflow => { }
 							}
-							sock.send_to(&res, src).unwrap();
 						}
+						sock.send_to(&res, src).unwrap();
+					} else {
+						println!("Sign verfiy error");
 					}
 				}
 			},
