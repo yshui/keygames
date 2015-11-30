@@ -1,0 +1,5 @@
+name "d"
+description "A minimal D application."
+copyright "Copyright © 2015, shui"
+authors "shui"
+dependency "botan" version="1.12.3"

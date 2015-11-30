@@ -8,3 +8,15 @@ rust-crypto = "^0.2"
 num = "*"
 rustc-serialize = "0.3"
 rand = "0.3"
+
+[[bin]]
+name = "client"
+path = "src/client.rs"
+
+[[bin]]
+name = "server"
+path = "src/main.rs"
+
+[[bin]]
+name = "genkey"
+path = "src/genkey.rs"
