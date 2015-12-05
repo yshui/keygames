@@ -1,8 +1,8 @@
 mod elgamal;
-extern crate num;
 extern crate rand;
 extern crate rustc_serialize;
 extern crate crypto;
+mod num;
 use std::net::UdpSocket;
 use num::bigint::BigUint;
 use num::traits::Num;

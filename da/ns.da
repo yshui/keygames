@@ -1,0 +1,139 @@
+import sys
+from Crypto import Random
+from Crypto.Random import random
+from Crypto.Random.random import getrandbits
+from Crypto.Cipher import AES
+from Crypto.PublicKey import ElGamal
+from Crypto.Util.number import GCD
+import pickle
+import time
+
+def b2i(bs):
+	ans = 0
+	coff = 1
+	for b in bs:
+		ans = ans+b*coff
+		coff = coff*256
+	return ans
+
+def i2b(b):
+	bs = []
+	while b > 0:
+		bs.append(b%256)
+		b = b//256
+	return bytes(bs)
+
+class ClientNS(process):
+	def setup(server:ServerNS):
+		self.done = False
+		f = open("client.priv", "r")
+		g = int(f.readline().rstrip())
+		p = int(f.readline().rstrip())
+		x = int(f.readline().rstrip())
+		y = pow(g, x, p)
+		self.priv = ElGamal.construct((p, g, y, x))
+
+		f = open("server.pub", "r")
+		sg = int(f.readline().rstrip())
+		sp = int(f.readline().rstrip())
+		sy = int(f.readline().rstrip())
+		self.pub = ElGamal.construct((sp, sg, sy))
+
+		self.theRNG = Random.new()
+		self.my_key = None
+		self.my_iv = None
+		self.log = open("time.log", "w")
+
+	def run():
+		while 1:
+			self.done = False
+			request()
+			t1 = time.perf_counter()
+			-- sent
+			await(self.done)
+			t2 = time.perf_counter()
+			output("Waited: ", t2-t1)
+			self.log.write(str(t2-t1))
+			self.log.write("\n")
+			self.log.flush()
+
+		
+	def request():
+		u, = server
+		self.my_key = self.theRNG.read(32)
+		self.my_iv = self.theRNG.read(16)
+		msg = pickle.dumps((my_key, my_iv, str(self.id), str(u)))
+		msg = b2i(msg)
+		while 1:
+			k = random.StrongRandom().randint(1, self.priv.p-1)
+			if GCD(k, self.priv.p-1) == 1: break
+		(sig1, sig2) = self.priv.sign(msg, k)
+		
+
+		(a2, b2) = self.pub.encrypt(sig1, random.StrongRandom().randint(1, self.pub.p-2))
+		(a1, b1) = self.pub.encrypt(msg, random.StrongRandom().randint(1, self.pub.p-2))
+		(a3, b3) = self.pub.encrypt(sig2, random.StrongRandom().randint(1, self.pub.p-2))
+
+		data = [a1, b1, a2, b2, a3, b3]
+
+		send(('request', data, self.id), to = server)
+
+	def receive(msg = ('connected', cipher), at=(sent,)):
+		de = AES.new(self.my_key, AES.MODE_CBC, self.my_iv)
+		msg = de.decrypt(cipher)
+		output("Received: ", msg.decode('ascii'))
+		self.done = True
+#end class ClientNS	
+
+class ServerNS(process):
+	def setup(clients:set):
+		f = open("server.priv", "r")
+		g = int(f.readline().rstrip())
+		p = int(f.readline().rstrip())
+		x = int(f.readline().rstrip())
+		y = pow(g, x, p)
+		self.priv = ElGamal.construct((p, g, y, x))
+
+		f = open("client.pub", "r")
+		sg = int(f.readline().rstrip())
+		sp = int(f.readline().rstrip())
+		sy = int(f.readline().rstrip())
+		self.pub = ElGamal.construct((sp, sg, sy))
+		self.theRNG = Random.new()
+		self.round = False
+	
+	def run():
+		while 1:
+			-- request
+
+	def receive(msg= ('request', d, localID), from_=f, at = (request,)):
+		remote = self.priv.decrypt((d[0], d[1]))
+		sig1 = self.priv.decrypt((d[2], d[3]))
+		sig2 = self.priv.decrypt((d[4], d[5]))
+
+		if self.pub.verify(remote, (sig1, sig2)):
+			obj = pickle.loads(i2b(remote))
+			print(obj)
+			if str(f) != obj[2] or str(self.id) != obj[3]:
+				print("Sender/receiver mismatch")
+				return
+			en = AES.new(obj[0], AES.MODE_CBC, obj[1])
+			msg = en.encrypt("We are connected")
+			send(('connected', msg), to=f)
+		else:
+			output("Verify failure")
+
+#end class ServerNS
+
+def main():
+	config(channel= 'reliable')
+
+	server = new(ServerNS)
+	client = new(ClientNS)
+	setup(server, (client,))
+	setup(client, (server,))
+
+	start(server)
+	start(client)
+
+#end main()

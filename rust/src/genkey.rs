@@ -1,6 +1,7 @@
-mod elgamal;
-extern crate num;
 extern crate rustc_serialize;
+extern crate rand;
+mod num;
+mod elgamal;
 use num::BigUint;
 use std::iter::repeat;
 use std::io::Write;

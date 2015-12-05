@@ -9,6 +9,7 @@ import botan.math.numbertheory.numthry;
 import std.range, std.algorithm, std.string;
 import std.socket, std.typecons;
 import sign;
+import botan.block.aes;
 
 
 void main()
@@ -37,7 +38,9 @@ void main()
 	outf = File("client.priv", "w");
 	outf.writefln("%s\n%s\n%s\n", G2, P2, X2);
 	*/
-	//Read server private key
+	//Read server= private key
+	ubyte[] my_msg = cast(ubyte[])("We are connected".dup);
+	my_msg.length = 16;
 	auto inf = File("server.priv");
 	auto rng = new AutoSeededRNG;
 	auto X = BigInt(inf.byLine.drop(2).front.stripRight.idup);
@@ -61,12 +64,21 @@ void main()
 		auto sz = sock.receiveFrom(buf, src);
 		if (sz == Socket.ERROR)
 			break;
+		//writeln(buf[0..sz]);
 		auto key_iv = de.decrypt(&buf[0], 256);
 		auto sigr = de.decrypt(&buf[256], 256);
 		auto sigs = de.decrypt(&buf[512], 256);
 
-		if (pub.verify(sigr~sigs, key_iv)) {
-			
+		if (pub.verify(sigr[]~sigs[], key_iv[])) {
+			ubyte[] output = new ubyte[16];
+			auto en = new AES256();
+			en.setKey(key_iv.ptr, 32);
+			en.encryptN(my_msg.ptr, output.ptr, 1);
+			sock.sendTo(output, src);
+		} else {
+			ubyte[] output = new ubyte[16];
+			sock.sendTo(output, src);
+			writeln("Sig verify error");
 		}
 	}
 }

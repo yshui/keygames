@@ -38,11 +38,13 @@ extern crate rustc_serialize;
 use std::cmp;
 use num::integer::Integer;
 use num::traits::{Signed, Num};
-use num::bigint::{BigInt,BigUint,RandBigInt,ToBigInt};
+use num::pow;
+use num::bigint::{BigInt,BigUint,RandBigInt,ToBigInt, pow_mod_monty, MontyReducer};
 use num::{Zero, One};
 use rustc_serialize::hex::{ToHex, FromHex};
 use std::string::FromUtf8Error;
 use std::iter::repeat;
+use std::mem::replace;
 //use std::num::{Zero, One, FromStrRadix, ToStrRadix};
 
 //#[deriving(Show)]
@@ -64,21 +66,8 @@ pub struct PrivateKey {
 // Modular exponentiation
 // https://en.wikipedia.org/wiki/Modular_exponentiation
 fn pow_mod(base: &BigUint, exponent: &BigUint, modulus: &BigUint) -> BigUint {
-    let zero: BigUint = Zero::zero();
-    let one: BigUint  = One::one();
-
-    let mut result: BigUint = One::one();
-    let mut e     : BigUint = exponent.clone();
-    let mut b     : BigUint = base.clone();
-
-    while e > zero {
-        if e.is_odd() {
-            result = ( &result * &b ) % modulus;
-        }
-        e = e >> 1;
-        b = ( &b * &b ) % modulus;
-    }
-    result
+    let mr = MontyReducer::new(modulus);
+    pow_mod_monty(base, exponent, &mr)
 }
 
 // Modular multiplicative inverse using Extended Euclidean Algorithm
@@ -94,13 +83,16 @@ fn inv_mod(num: &BigUint, modulus: &BigUint) -> Option<BigUint> {
     let mut b: BigInt = modulus.to_bigint().unwrap();
 
     while a != zero {
-        let q = &b / &a;
-        let r = &b % &a;
+        let (q, r) = b.div_rem(&a);
+        //let q = &b / &a;
+        //let r = &b % &a;
         let m = &x - &u*&q;
         let n = &y - &v*&q;
-        b = a; a = r;
-        x = u; y = v;
-        u = m; v = n;
+        b = replace(&mut a, r);
+        x = replace(&mut u, m);
+        y = replace(&mut v, n);
+        //x = u; y = v;
+        //u = m; v = n;
     }
 
     if b == One::one() {

@@ -1,6 +1,6 @@
-mod elgamal;
 extern crate rand;
-extern crate num;
+mod num;
+mod elgamal;
 extern crate rustc_serialize;
 extern crate time;
 extern crate crypto;
